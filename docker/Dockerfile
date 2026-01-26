@@ -11,8 +11,8 @@ RUN apk add --no-cache libc6-compat
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies (skip scripts like husky which are dev-only)
+RUN npm ci --only=production --ignore-scripts
 
 # ====================
 # Stage 2: Builder
