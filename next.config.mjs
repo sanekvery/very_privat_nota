@@ -18,13 +18,19 @@ const nextConfig = {
     ],
   },
 
-  // Webpack configuration
+  // Webpack configuration (for webpack builds)
   webpack: (config) => {
     config.externals.push({
       'utf-8-validate': 'commonjs utf-8-validate',
       bufferutil: 'commonjs bufferutil',
     })
     return config
+  },
+
+  // Turbopack configuration (for turbopack builds)
+  turbopack: {
+    // Empty config to acknowledge Turbopack usage
+    // The webpack externals above are handled automatically by Turbopack
   },
 
   // Environment variables available on client
@@ -37,12 +43,6 @@ const nextConfig = {
 
   // Strict mode
   reactStrictMode: true,
-
-  // Internationalization
-  i18n: {
-    locales: ['ru', 'en'],
-    defaultLocale: 'ru',
-  },
 }
 
 export default nextConfig
