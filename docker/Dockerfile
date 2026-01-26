@@ -21,8 +21,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy dependencies from deps stage
-COPY --from=deps /app/node_modules ./node_modules
+# Install OpenSSL for Prisma
+RUN apk add --no-cache openssl libc6-compat
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install ALL dependencies (including dev for Prisma and build tools)
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -47,12 +53,15 @@ WORKDIR /app
 ENV NODE_ENV production
 ENV NEXT_TELEMETRY_DISABLED 1
 
+# Install OpenSSL for Prisma
+RUN apk add --no-cache openssl
+
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Install PM2 and Prisma CLI globally (specific version)
-RUN npm install -g pm2 prisma@5.21.0
+# Install PM2 globally
+RUN npm install -g pm2
 
 # Copy necessary files from builder
 COPY --from=builder /app/public ./public
@@ -62,10 +71,12 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy Prisma files
+# Copy Prisma files and CLI from builder
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 
 # Create logs directory
 RUN mkdir -p /app/logs && chown -R nextjs:nodejs /app/logs
