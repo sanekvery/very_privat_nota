@@ -47,10 +47,9 @@ dist
 agent
 
 # Docker
-docker
-Dockerfile
 .dockerignore
 docker-compose*.yml
+docker/Dockerfile
 
 # CI/CD
 .github
