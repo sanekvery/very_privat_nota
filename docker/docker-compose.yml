@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   # ====================
   # PostgreSQL Database
@@ -37,7 +35,7 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      - "6380:6379"
     networks:
       - vpn-network
     healthcheck:
