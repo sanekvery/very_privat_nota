@@ -1,0 +1,636 @@
+// Prisma Schema для Telegram VPN Mini App
+// Generator и datasource
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ====================
+// Enums
+// ====================
+
+enum SubscriptionStatus {
+  active
+  expired
+  cancelled
+  pending
+}
+
+enum PaymentStatus {
+  pending
+  completed
+  failed
+  refunded
+}
+
+enum PaymentMethod {
+  ton
+  promo_code
+  manual
+}
+
+enum TicketStatus {
+  open
+  in_progress
+  waiting_user
+  closed
+}
+
+enum TicketPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum ServerStatus {
+  active
+  maintenance
+  overloaded
+  offline
+}
+
+enum WithdrawalStatus {
+  pending
+  approved
+  rejected
+  completed
+}
+
+enum NotificationType {
+  subscription_expiring
+  subscription_expired
+  payment_received
+  support_reply
+  news
+  system
+}
+
+// ====================
+// Модуль: AUTH
+// ====================
+
+model User {
+  id                String    @id @default(uuid())
+  telegramId        BigInt?   @unique @map("telegram_id")
+  username          String?
+  firstName         String?   @map("first_name")
+  lastName          String?   @map("last_name")
+  languageCode      String    @default("ru") @map("language_code")
+  isAdmin           Boolean   @default(false) @map("is_admin")
+  isBanned          Boolean   @default(false) @map("is_banned")
+  banReason         String?   @map("ban_reason")
+
+  // Реферальная система
+  referralCode      String    @unique @map("referral_code")
+  referredBy        String?   @map("referred_by")
+  referrer          User?     @relation("Referrals", fields: [referredBy], references: [referralCode], onDelete: SetNull)
+  referrals         User[]    @relation("Referrals")
+
+  // Баланс реферальных начислений
+  referralBalance   Decimal   @default(0) @map("referral_balance") @db.Decimal(10, 2)
+  totalEarned       Decimal   @default(0) @map("total_earned") @db.Decimal(10, 2)
+
+  // Метаданные
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  lastLoginAt       DateTime? @map("last_login_at")
+
+  // Отношения
+  subscriptions     Subscription[]
+  payments          Payment[]
+  supportTickets    SupportTicket[]
+  ticketReplies     TicketReply[]
+  notifications     Notification[]
+  promoActivations  PromoActivation[]
+  referralEarnings  ReferralTransaction[] @relation("ReferralEarnings")
+  referralPayments  ReferralTransaction[] @relation("ReferralPayments")
+  withdrawalRequests WithdrawalRequest[]
+
+  @@map("users")
+  @@index([telegramId])
+  @@index([referralCode])
+  @@index([referredBy])
+}
+
+// ====================
+// Модуль: SUBSCRIPTIONS
+// ====================
+
+model SubscriptionPlan {
+  id                String    @id @default(uuid())
+  name              String
+  nameEn            String?   @map("name_en")
+  description       String?
+  descriptionEn     String?   @map("description_en")
+
+  // Конфигурация
+  maxConfigs        Int       @map("max_configs")
+  durationDays      Int       @map("duration_days")
+  price             Decimal   @db.Decimal(10, 2)
+
+  // Кастомные планы
+  isCustom          Boolean   @default(false) @map("is_custom")
+  isActive          Boolean   @default(true) @map("is_active")
+
+  // Метаданные
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Отношения
+  subscriptions     Subscription[]
+  promoCodes        PromoCode[]
+
+  @@map("subscription_plans")
+  @@index([isActive])
+}
+
+model Subscription {
+  id                String              @id @default(uuid())
+  userId            String              @map("user_id")
+  planId            String              @map("plan_id")
+
+  // Статус
+  status            SubscriptionStatus  @default(pending)
+
+  // Даты
+  startDate         DateTime            @map("start_date")
+  endDate           DateTime            @map("end_date")
+  cancelledAt       DateTime?           @map("cancelled_at")
+
+  // Метаданные
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  // Отношения
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan              SubscriptionPlan    @relation(fields: [planId], references: [id])
+  ipAllocations     IpPool[]
+  vpnConfigs        VpnConfig[]
+
+  @@map("subscriptions")
+  @@index([userId, status])
+  @@index([endDate, status])
+}
+
+// ====================
+// Модуль: VPN
+// ====================
+
+model VpnServer {
+  id                String        @id @default(uuid())
+  name              String
+  countryCode       String        @map("country_code")
+  city              String?
+
+  // Подключение к агенту
+  host              String
+  port              Int           @default(443)
+  agentApiUrl       String        @map("agent_api_url")
+  agentBearerToken  String        @map("agent_bearer_token")
+
+  // WireGuard конфигурация
+  publicKey         String        @map("public_key")
+  endpoint          String
+  listenPort        Int           @map("listen_port")
+  subnet            String        // CIDR notation, например "10.0.1.0/24"
+  dns               String        @default("1.1.1.1,8.8.8.8")
+
+  // Ограничения
+  maxUsers          Int           @map("max_users")
+  currentUsers      Int           @default(0) @map("current_users")
+
+  // Статус и приоритет
+  status            ServerStatus  @default(active)
+  priority          Int           @default(100)
+  isActive          Boolean       @default(true) @map("is_active")
+
+  // Метаданные
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  lastHealthCheck   DateTime?     @map("last_health_check")
+
+  // Отношения
+  ipPools           IpPool[]
+  vpnConfigs        VpnConfig[]
+  healthChecks      ServerHealthCheck[]
+  metrics           ServerMetric[]
+
+  @@map("vpn_servers")
+  @@index([status, isActive])
+  @@index([countryCode])
+}
+
+model IpPool {
+  id                String        @id @default(uuid())
+  serverId          String        @map("server_id")
+  ipAddress         String        @map("ip_address")
+
+  // Выделение
+  isAllocated       Boolean       @default(false) @map("is_allocated")
+  allocatedTo       String?       @map("allocated_to")
+  allocatedAt       DateTime?     @map("allocated_at")
+  releasedAt        DateTime?     @map("released_at")
+
+  // WireGuard конфигурация для этого IP
+  privateKey        String?       @map("private_key")
+  publicKey         String?       @map("public_key")
+  presharedKey      String?       @map("preshared_key")
+
+  // Метаданные
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  // Отношения
+  server            VpnServer     @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  subscription      Subscription? @relation(fields: [allocatedTo], references: [id], onDelete: SetNull)
+  vpnConfigs        VpnConfig[]
+
+  @@unique([serverId, ipAddress])
+  @@map("ip_pools")
+  @@index([serverId, isAllocated])
+  @@index([allocatedTo])
+}
+
+model VpnConfig {
+  id                String        @id @default(uuid())
+  subscriptionId    String        @map("subscription_id")
+  serverId          String        @map("server_id")
+  ipPoolId          String        @map("ip_pool_id")
+
+  // WireGuard keys
+  privateKey        String        @map("private_key")
+  publicKey         String        @map("public_key")
+  presharedKey      String?       @map("preshared_key")
+
+  // Configuration text
+  configText        String        @map("config_text") @db.Text
+
+  // Status
+  isActive          Boolean       @default(true) @map("is_active")
+
+  // Метаданные
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  // Отношения
+  subscription      Subscription  @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  server            VpnServer     @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  ipPool            IpPool        @relation(fields: [ipPoolId], references: [id], onDelete: Restrict)
+
+  @@map("vpn_configs")
+  @@index([subscriptionId, isActive])
+  @@index([serverId])
+}
+
+// ====================
+// Модуль: PAYMENTS
+// ====================
+
+model Payment {
+  id                String          @id @default(uuid())
+  userId            String          @map("user_id")
+  planId            String?         @map("plan_id")
+
+  // Детали платежа
+  amount            Decimal         @db.Decimal(10, 2)
+  currency          String          @default("TON")
+  method            PaymentMethod
+  status            PaymentStatus   @default(pending)
+
+  // TON специфичные поля
+  tonTransactionHash String?        @map("ton_transaction_hash")
+  tonWalletAddress   String?        @map("ton_wallet_address")
+
+  // Промокод
+  promoCodeId       String?         @map("promo_code_id")
+
+  // Метаданные
+  metadata          Json?
+  failureReason     String?         @map("failure_reason")
+
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  completedAt       DateTime?       @map("completed_at")
+
+  // Отношения
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  promoCode         PromoCode?      @relation(fields: [promoCodeId], references: [id])
+  referralTransactions ReferralTransaction[]
+
+  @@map("payments")
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([tonTransactionHash])
+}
+
+// ====================
+// Модуль: REFERRALS
+// ====================
+
+model ReferralTransaction {
+  id                String    @id @default(uuid())
+  referrerId        String    @map("referrer_id")
+  referredUserId    String    @map("referred_user_id")
+  paymentId         String    @map("payment_id")
+
+  // Детали начисления
+  amount            Decimal   @db.Decimal(10, 2)
+  percentage        Decimal   @db.Decimal(5, 2) // Процент от платежа
+  isFirstPayment    Boolean   @map("is_first_payment")
+
+  // Метаданные
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  // Отношения
+  referrer          User      @relation("ReferralEarnings", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUser      User      @relation("ReferralPayments", fields: [referredUserId], references: [id], onDelete: Cascade)
+  payment           Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@map("referral_transactions")
+  @@index([referrerId])
+  @@index([paymentId])
+}
+
+model WithdrawalRequest {
+  id                String            @id @default(uuid())
+  userId            String            @map("user_id")
+
+  // Детали вывода
+  amount            Decimal           @db.Decimal(10, 2)
+  tonWalletAddress  String            @map("ton_wallet_address")
+  status            WithdrawalStatus  @default(pending)
+
+  // Обработка
+  processedBy       String?           @map("processed_by")
+  processedAt       DateTime?         @map("processed_at")
+  rejectionReason   String?           @map("rejection_reason")
+  tonTransactionHash String?          @map("ton_transaction_hash")
+
+  // Метаданные
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  // Отношения
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("withdrawal_requests")
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+// ====================
+// Модуль: PROMO
+// ====================
+
+model PromoCode {
+  id                String        @id @default(uuid())
+  code              String        @unique
+  planId            String        @map("plan_id")
+
+  // Конфигурация
+  durationDays      Int           @map("duration_days")
+  maxUses           Int?          @map("max_uses")
+  usedCount         Int           @default(0) @map("used_count")
+
+  // Активность
+  isActive          Boolean       @default(true) @map("is_active")
+  expiresAt         DateTime?     @map("expires_at")
+
+  // Метаданные
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  createdBy         String?       @map("created_by")
+
+  // Отношения
+  plan              SubscriptionPlan @relation(fields: [planId], references: [id])
+  activations       PromoActivation[]
+  payments          Payment[]
+
+  @@map("promo_codes")
+  @@index([code])
+  @@index([isActive, expiresAt])
+}
+
+model PromoActivation {
+  id                String    @id @default(uuid())
+  userId            String    @map("user_id")
+  promoCodeId       String    @map("promo_code_id")
+
+  // Метаданные
+  activatedAt       DateTime  @default(now()) @map("activated_at")
+
+  // Отношения
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  promoCode         PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, promoCodeId])
+  @@map("promo_activations")
+  @@index([promoCodeId])
+}
+
+// ====================
+// Модуль: SUPPORT
+// ====================
+
+model SupportTicket {
+  id                String          @id @default(uuid())
+  userId            String          @map("user_id")
+
+  // Детали тикета
+  subject           String
+  status            TicketStatus    @default(open)
+  priority          TicketPriority  @default(medium)
+
+  // Назначение
+  assignedTo        String?         @map("assigned_to")
+
+  // Метаданные
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  closedAt          DateTime?       @map("closed_at")
+
+  // Отношения
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies           TicketReply[]
+
+  @@map("support_tickets")
+  @@index([userId, status])
+  @@index([status, priority])
+}
+
+model TicketReply {
+  id                String        @id @default(uuid())
+  ticketId          String        @map("ticket_id")
+  userId            String        @map("user_id")
+
+  // Содержимое
+  message           String
+  isStaff           Boolean       @default(false) @map("is_staff")
+
+  // Метаданные
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  // Отношения
+  ticket            SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ticket_replies")
+  @@index([ticketId, createdAt])
+}
+
+// ====================
+// Модуль: NOTIFICATIONS
+// ====================
+
+model Notification {
+  id                String            @id @default(uuid())
+  userId            String            @map("user_id")
+
+  // Содержимое
+  type              NotificationType
+  title             String
+  titleEn           String?           @map("title_en")
+  message           String
+  messageEn         String?           @map("message_en")
+
+  // Статус
+  isRead            Boolean           @default(false) @map("is_read")
+  readAt            DateTime?         @map("read_at")
+
+  // Метаданные
+  metadata          Json?
+  createdAt         DateTime          @default(now()) @map("created_at")
+
+  // Отношения
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+// ====================
+// Модуль: NEWS
+// ====================
+
+model News {
+  id                String    @id @default(uuid())
+  title             String
+  titleEn           String?   @map("title_en")
+  content           String    // Markdown
+  contentEn         String?   @map("content_en")
+
+  // Изображение
+  imageUrl          String?   @map("image_url")
+
+  // Публикация
+  isPublished       Boolean   @default(false) @map("is_published")
+  publishedAt       DateTime? @map("published_at")
+
+  // Метаданные
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  createdBy         String    @map("created_by")
+
+  @@map("news")
+  @@index([isPublished, publishedAt])
+}
+
+// ====================
+// Модуль: MONITORING
+// ====================
+
+model ServerHealthCheck {
+  id                String        @id @default(uuid())
+  serverId          String        @map("server_id")
+
+  // Статус проверки
+  isHealthy         Boolean       @map("is_healthy")
+  responseTime      Int?          @map("response_time") // Milliseconds
+  errorMessage      String?       @map("error_message")
+
+  // Метрики
+  cpuUsage          Decimal?      @map("cpu_usage") @db.Decimal(5, 2)
+  memoryUsage       Decimal?      @map("memory_usage") @db.Decimal(5, 2)
+  diskUsage         Decimal?      @map("disk_usage") @db.Decimal(5, 2)
+  activeConnections Int?          @map("active_connections")
+
+  // Метаданные
+  checkedAt         DateTime      @default(now()) @map("checked_at")
+
+  // Отношения
+  server            VpnServer     @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@map("server_health_checks")
+  @@index([serverId, checkedAt])
+  @@index([isHealthy])
+}
+
+model ServerMetric {
+  id                String    @id @default(uuid())
+  serverId          String    @map("server_id")
+
+  // Метрики
+  bytesIn           BigInt    @map("bytes_in")
+  bytesOut          BigInt    @map("bytes_out")
+  activeUsers       Int       @map("active_users")
+  totalConnections  Int       @map("total_connections")
+
+  // Метаданные
+  timestamp         DateTime  @default(now())
+
+  // Отношения
+  server            VpnServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@map("server_metrics")
+  @@index([serverId, timestamp])
+}
+
+// ====================
+// Модуль: ADMIN
+// ====================
+
+model AdminAuditLog {
+  id                String    @id @default(uuid())
+  adminId           String    @map("admin_id")
+
+  // Действие
+  action            String
+  entityType        String    @map("entity_type")
+  entityId          String?   @map("entity_id")
+
+  // Детали
+  changes           Json?
+  ipAddress         String?   @map("ip_address")
+  userAgent         String?   @map("user_agent")
+
+  // Метаданные
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@map("admin_audit_log")
+  @@index([adminId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// ====================
+// Системные настройки
+// ====================
+
+model SystemSettings {
+  id                String    @id @default(uuid())
+  key               String    @unique
+  value             Json
+  description       String?
+
+  // Метаданные
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}

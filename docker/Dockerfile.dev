@@ -1,0 +1,32 @@
+# Development Dockerfile with hot-reload
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies for native modules
+RUN apk add --no-cache libc6-compat python3 make g++
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install ALL dependencies (including dev)
+RUN npm install
+
+# Copy Prisma schema
+COPY prisma ./prisma
+
+# Generate Prisma Client
+RUN npx prisma generate
+
+# Expose ports
+EXPOSE 3000 9229
+
+# Enable Node.js debugger
+ENV NODE_OPTIONS="--inspect=0.0.0.0:9229"
+
+# Development mode
+ENV NODE_ENV=development
+
+# Start development server
+CMD ["npm", "run", "dev"]

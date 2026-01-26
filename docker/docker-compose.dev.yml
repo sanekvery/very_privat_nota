@@ -1,0 +1,66 @@
+version: '3.9'
+
+# Development overrides
+# Use: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    volumes:
+      - ..:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - TELEGRAM_MOCK_MODE=true
+      - TON_MOCK_MODE=true
+      - VPN_AGENT_MOCK=true
+    command: npm run dev
+    ports:
+      - "3000:3000"
+      - "9229:9229" # Node.js debugger
+
+  postgres:
+    environment:
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8
+    ports:
+      - "5432:5432" # Expose for external tools (TablePlus, etc)
+
+  redis:
+    ports:
+      - "6379:6379" # Expose for RedisInsight
+
+  # ====================
+  # Prisma Studio (DB GUI)
+  # ====================
+  prisma-studio:
+    image: node:20-alpine
+    container_name: vpn-prisma-studio
+    working_dir: /app
+    volumes:
+      - ..:/app
+    command: sh -c "npm install && npx prisma studio"
+    ports:
+      - "5555:5555"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-vpn_user}:${POSTGRES_PASSWORD:-vpn_password_change_me}@postgres:5432/${POSTGRES_DB:-vpn_db}
+    depends_on:
+      - postgres
+    networks:
+      - vpn-network
+
+  # ====================
+  # Mailpit (Email testing)
+  # ====================
+  mailpit:
+    image: axllent/mailpit
+    container_name: vpn-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    networks:
+      - vpn-network
