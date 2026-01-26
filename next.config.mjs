@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Docker deployment - creates .next/standalone folder
+  output: 'standalone',
+
   // Experimental features
   experimental: {
     // Enable server actions
