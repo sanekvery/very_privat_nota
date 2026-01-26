@@ -51,8 +51,8 @@ ENV NEXT_TELEMETRY_DISABLED 1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Install PM2 globally
-RUN npm install -g pm2
+# Install PM2 and Prisma CLI globally
+RUN npm install -g pm2 prisma
 
 # Copy necessary files from builder
 COPY --from=builder /app/public ./public
