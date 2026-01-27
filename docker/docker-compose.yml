@@ -55,8 +55,6 @@ services:
         - NODE_ENV=${NODE_ENV:-production}
     container_name: vpn-app
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-vpn_user}:${POSTGRES_PASSWORD:-vpn_password_change_me}@postgres:5432/${POSTGRES_DB:-vpn_db}
       - REDIS_URL=redis://redis:6379
