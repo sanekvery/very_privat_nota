@@ -19,7 +19,7 @@ services:
     networks:
       - vpn-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpn_user}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpn_user} -d ${POSTGRES_DB:-vpn_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
