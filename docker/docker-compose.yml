@@ -72,8 +72,7 @@ services:
       - vpn-network
     volumes:
       - ../logs:/app/logs
-      - ../prisma:/app/prisma
-    command: sh -c "npm run prisma:migrate:deploy && npm run start"
+    command: sh -c "npx prisma migrate deploy && node server.js"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
